@@ -2,7 +2,7 @@
 
 ## Cómo abrirlo
 
-1. Abre Android Studio → `Open` → selecciona la carpeta `FishFeederApp` (la que contiene `settings.gradle`).
+1. Abre Android Studio → `Open` → selecciona la carpeta `App-Android` (la que contiene `settings.gradle`).
 2. Deja que Gradle sincronice (descarga Retrofit, Room, WorkManager, Material Components y MPAndroidChart automáticamente — todo vía Maven Central y JitPack, ya declarados en `settings.gradle` y `app/build.gradle`).
 3. Ejecuta en un celular Android real conectado por USB (con "Depuración USB" activada) o en un emulador — en ambos casos el celular/emulador debe estar en la **misma red WiFi** que el ESP32.
 
