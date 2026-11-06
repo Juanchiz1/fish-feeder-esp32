@@ -21,6 +21,7 @@ import com.juanchiz.fishfeeder.model.TimeSyncRequest;
 import com.juanchiz.fishfeeder.network.FeederApiService;
 import com.juanchiz.fishfeeder.network.RetrofitClient;
 import com.juanchiz.fishfeeder.ui.MainActivity;
+import com.juanchiz.fishfeeder.ui.diagnostics.DiagnosticsActivity;
 import com.juanchiz.fishfeeder.ui.thresholds.ThresholdsActivity;
 import com.juanchiz.fishfeeder.ui.wifi.WifiConfigActivity;
 
@@ -53,6 +54,7 @@ public class SettingsFragment extends Fragment {
         MaterialButton btnConfigureWifi = view.findViewById(R.id.btnConfigureWifi);
         MaterialButton btnSyncTime = view.findViewById(R.id.btnSyncTime);
         MaterialButton btnConfigureThresholds = view.findViewById(R.id.btnConfigureThresholds);
+        MaterialButton btnDiagnostics = view.findViewById(R.id.btnDiagnostics);
 
         boolean isConnected = prefsManager.isConnected();
         tvCurrentIp.setText(isConnected ? prefsManager.getDeviceIp() : getString(R.string.not_connected_yet));
@@ -64,10 +66,13 @@ public class SettingsFragment extends Fragment {
         btnConfigureWifi.setEnabled(isConnected);
         btnSyncTime.setEnabled(isConnected);
         btnConfigureThresholds.setEnabled(isConnected);
+        btnDiagnostics.setEnabled(isConnected);
         btnConfigureWifi.setOnClickListener(v -> goToWifiReconfigure());
         btnSyncTime.setOnClickListener(v -> syncTime(btnSyncTime));
         btnConfigureThresholds.setOnClickListener(v ->
                 startActivity(new android.content.Intent(requireContext(), ThresholdsActivity.class)));
+        btnDiagnostics.setOnClickListener(v ->
+                startActivity(new android.content.Intent(requireContext(), DiagnosticsActivity.class)));
 
         SwitchMaterial switchNotifyEmpty = view.findViewById(R.id.switchNotifyEmpty);
         SwitchMaterial switchNotifyHumidity = view.findViewById(R.id.switchNotifyHumidity);

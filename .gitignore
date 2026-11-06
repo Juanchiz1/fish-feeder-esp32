@@ -1,13 +1,7 @@
-# IDE
-.idea/
-*.iml
-.vscode/
-
-# Android
-local.properties
-.gradle/
 build/
-
-# Sistema
-.DS_Store
-Thumbs.db
+.gradle/
+.idea/
+local.properties
+*.iml
+*.apk
+captures/

@@ -28,11 +28,11 @@
     <string name="label_last_feeding">Última alimentación</string>
     <string name="btn_feed_now">Alimentar ahora</string>
     <string name="portions">Porciones</string>
-    <string name="alert_empty">La tolva está casi vacía</string>
+    <string name="alert_empty">La tolva está vacía</string>
     <string name="alert_humidity">Humedad alta en el alimento</string>
     <string name="alert_temp_high">Temperatura alta</string>
     <string name="alert_temp_low">Temperatura baja</string>
-    <string name="alert_jam">Posible atasco: el nivel de la tolva no cambió al alimentar</string>
+    <string name="alert_jam">Posible atasco: el nivel no bajó en las últimas alimentaciones</string>
     <string name="status_connected">Conectado</string>
     <string name="status_disconnected">Sin conexión con el dispensador</string>
 
@@ -42,11 +42,9 @@
     <string name="schedule_saved">Horarios guardados en el dispensador</string>
 
     <string name="stats_title">Estadísticas</string>
-    <string name="stats_empty">Aún no hay suficientes datos. Deja la app conectada un tiempo para acumular historial.</string>
-    <string name="stats_humidity_chart">Humedad del alimento (últimas lecturas)</string>
-    <string name="stats_level_chart">Nivel de la tolva (últimas lecturas)</string>
-    <string name="stats_temperature_chart">Temperatura (últimas lecturas)</string>
-    <string name="stats_feedings_today">Alimentaciones registradas hoy</string>
+        <string name="stats_humidity_chart">Humedad del alimento</string>
+    <string name="stats_level_chart">Alimento en la tolva</string>
+    <string name="stats_temperature_chart">Temperatura</string>
 
     <string name="settings_title">Ajustes</string>
     <string name="settings_device">Dispositivo</string>
@@ -85,16 +83,15 @@
     <string name="btn_done">Listo</string>
 
     <string name="notif_channel_name">Alertas del dispensador</string>
-    <string name="notif_channel_desc">Avisos de tolva vacía y humedad alta</string>
+    <string name="notif_channel_desc">Avisos de tolva vacía, humedad, temperatura y fallas de sensores</string>
     <string name="notif_daily_summary_title">Resumen del día</string>
     <string name="notif_daily_summary_body">%1$d alimentaciones · Humedad prom. %2$s · Nivel actual %3$s</string>
     <string name="settings_notify_daily_summary">Resumen diario</string>
 
     <string name="stats_history_title">Historial de alimentaciones</string>
-    <string name="stats_history_empty">Todavía no se ha registrado ninguna alimentación.</string>
+    <string name="stats_history_empty">No hubo alimentaciones este día.</string>
     <string name="feeding_manual_label">Manual</string>
     <string name="feeding_scheduled_label">Programada</string>
-    <string name="feeding_portions_format">%1$d porción(es)</string>
 
     <string name="label_days_remaining">Alimento restante estimado</string>
     <string name="days_remaining_format">≈%d días</string>
@@ -110,7 +107,7 @@
     <string name="btn_configure_thresholds">Configurar umbrales</string>
 
     <string name="thresholds_title">Umbrales de calibración y alerta</string>
-    <string name="thresholds_subtitle">Ajusta a partir de qué valores el dispensador considera algo anormal. Los de la tolva dependen de cómo quedó instalado el sensor VL53L0X; los de humedad y temperatura, de las condiciones normales de tu alimento.</string>
+    <string name="thresholds_subtitle">Ajusta a partir de qué valores el dispensador considera algo anormal. Los de la tolva dependen de cómo quedó instalado el sensor de nivel (mídelos con la tolva llena y con la tolva vacía); los de humedad y temperatura, de las condiciones normales de tu alimento.</string>
     <string name="hint_humedad_max">Humedad máxima normal (%)</string>
     <string name="hint_temp_min">Temperatura mínima normal (°C)</string>
     <string name="hint_temp_max">Temperatura máxima normal (°C)</string>
@@ -132,4 +129,140 @@
     <string name="btn_use_reading">Usar lectura actual</string>
     <string name="thresholds_live_error">No se pudo leer el estado actual del dispensador.</string>
     <string name="thresholds_live_unavailable">--</string>
+
+    <string name="btn_open_diagnostics">Diagnóstico de sensores</string>
+    <string name="diagnostics_title">Diagnóstico de sensores</string>
+    <string name="diagnostics_subtitle">Cada botón enciende solo ese sensor, sin tocar los demás. Útil para descartar cables sueltos o un módulo dañado sin conectar el ESP32 a un computador.</string>
+    <string name="diagnostics_ok">OK</string>
+    <string name="diagnostics_failed">Falló</string>
+    <string name="diagnostics_checking">Probando…</string>
+    <string name="diagnostics_load_error">No se pudo consultar el diagnóstico. Verifica la conexión con el dispensador.</string>
+    <!-- Tiempo relativo -->
+    <string name="time_never">nunca</string>
+    <string name="time_ago_seconds">hace %d s</string>
+    <string name="time_ago_minutes">hace %d min</string>
+    <string name="time_ago_hours">hace %.1f h</string>
+    <string name="time_ago_days">hace %d días</string>
+    <string name="duration_minutes">%d min</string>
+    <string name="duration_hours_minutes">%1$d h %2$02d min</string>
+
+    <!-- Estado del sensor de nivel -->
+    <string name="level_state_ok">lectura normal</string>
+    <string name="level_state_no_echo">sin eco (tolva vacía)</string>
+    <string name="level_state_too_close">muy cerca (¿sobrellenada o algo en la rejilla?)</string>
+    <string name="level_state_error">error de comunicación</string>
+    <string name="level_state_no_sensor">el sensor no responde</string>
+    <string name="level_state_not_measured">aún sin medir</string>
+
+    <!-- Inicio -->
+    <string name="level_info_format">Medido %1$s · %2$s</string>
+    <string name="btn_measure_level">Medir ahora</string>
+    <string name="measuring">Midiendo…</string>
+    <string name="measure_error">No se pudo medir el nivel. Verifica la conexión con el dispensador.</string>
+    <string name="feeding_in_progress">Alimentando…</string>
+    <string name="feed_error">No se pudo enviar la orden de alimentar.</string>
+    <string name="alert_low">Queda poco alimento, rellena pronto</string>
+    <string name="alert_level_sensor">El sensor de nivel está fallando: revisa Diagnóstico</string>
+    <string name="alert_dht_sensor">El sensor de humedad no responde</string>
+    <string name="alert_rtc">El reloj no responde: los horarios no se van a disparar</string>
+
+    <!-- Diagnóstico por sensor -->
+    <string name="btn_test_all_sequential">Probar los tres, uno por uno</string>
+    <string name="btn_test_this_sensor">Probar este sensor</string>
+    <string name="diag_sequence_step">Probando %1$d de 3: %2$s…</string>
+    <string name="diag_sequence_done">Listo: se probaron los tres sensores, uno después del otro.</string>
+    <string name="diag_last_test">Última prueba: %s</string>
+    <string name="diag_pill_empty">OK · vacía</string>
+    <string name="diag_pill_too_close">Muy cerca</string>
+    <string name="diag_pill_no_response">No responde</string>
+    <string name="diag_pill_untested">Sin probar</string>
+    <string name="diag_pill_check_battery">OK · revisar pila</string>
+
+
+    <string name="diag_level_name">Nivel de la tolva</string>
+    <string name="diag_level_when">RCWL-1601 (ultrasonido) · solo mide al alimentar o al probarlo</string>
+    <string name="diag_level_reading_ok">%1$d mm · %2$d%% de alimento</string>
+    <string name="diag_level_reading_beyond">Eco a %d mm (más allá del fondo) · 0%%</string>
+    <string name="diag_level_reading_empty" formatted="false">Sin eco · 0%</string>
+    <string name="diag_level_reading_full">Menos de %d mm · 100%%</string>
+    <string name="diag_level_samples">Pulsos (mm)</string>
+    <string name="diag_level_samples_legend">* más allá del fondo · — sin eco · C muy cerca · E sin respuesta</string>
+    <string name="diag_level_sound">Sonido a %1$.1f m/s (corregido a %2$.1f °C con el DHT22)</string>
+    <string name="diag_level_counts">Válidos %1$d de %2$d · sin eco %3$d · muy cerca %4$d · sin respuesta %5$d</string>
+    <string name="diag_level_spread">Los ecos válidos varían %d mm entre sí</string>
+    <string name="diag_level_duration">La medición tardó %.1f s</string>
+    <string name="diag_level_failed_sessions">Mediciones fallidas seguidas: %d</string>
+    <string name="thresholds_live_distance_beyond">%d mm (más allá del fondo actual)</string>
+
+    <string name="diag_dht_name">Humedad y temperatura</string>
+    <string name="diag_dht_when">DHT22 · se lee cada 5 minutos</string>
+    <string name="diag_dht_when_format">DHT22 · se lee cada %d minutos</string>
+    <string name="diag_dht_reading">%1$.1f %%HR · %2$.1f °C</string>
+    <string name="diag_dht_details">Última lectura buena: %1$s · intentos: %2$d · fallos seguidos: %3$d</string>
+
+    <string name="diag_rtc_name">Reloj</string>
+    <string name="diag_rtc_when">DS3231 · siempre encendido, lleva la hora de los horarios</string>
+    <string name="diag_rtc_reading">%1$s  %2$s</string>
+    <string name="diag_rtc_details">Temperatura interna: %1$.2f °C · revisado %2$s</string>
+
+    <string name="diag_system_title">Dispensador</string>
+    <string name="diag_system_info">WiFi %1$d dBm · memoria libre %2$d KB · encendido %3$s\nPróxima lectura del ciclo en %4$d min %5$d s (cada %6$d min)</string>
+
+    <!-- Estadísticas -->
+    <string name="stats_prev_day">Día anterior</string>
+    <string name="stats_next_day">Día siguiente</string>
+    <string name="stats_pick_day_hint">Toca para elegir otra fecha</string>
+    <string name="stats_pick_day_title">Elige un día</string>
+    <string name="stats_go_today">Volver a hoy</string>
+    <string name="stats_day_today">Hoy, %s</string>
+    <string name="stats_day_yesterday">Ayer, %s</string>
+    <string name="stats_never_synced">Sin sincronizar</string>
+    <string name="stats_synced">Actualizado %s</string>
+    <string name="stats_week_title">Porciones por día</string>
+    <string name="stats_week_hint">Toca una barra para ver ese día</string>
+    <string name="stats_day_empty">No hay datos guardados de este día. El dispensador guarda las últimas 24 h; si la app no se conectó ese día, esas lecturas se perdieron.</string>
+    <string name="stats_day_empty_today">Todavía no hay lecturas de hoy. El dispensador guarda una cada 5 minutos; desliza hacia abajo para sincronizar.</string>
+    <string name="stats_sum_feedings">Alimentaciones</string>
+    <string name="stats_sum_feedings_sub">%1$d porciones · %2$d manuales</string>
+    <string name="stats_sum_level">Alimento al final</string>
+    <string name="stats_level_value">%d%%</string>
+    <string name="stats_level_sub">Empezó en %1$d%% · se consumió %2$d%%</string>
+    <string name="stats_no_level_data">Sin mediciones de nivel</string>
+    <string name="stats_sum_humidity">Humedad promedio</string>
+    <string name="stats_sum_temperature">Temperatura promedio</string>
+    <string name="stats_min_max_pct">mín %1$.0f%% · máx %2$.0f%%</string>
+    <string name="stats_min_max_deg">mín %1$.1f° · máx %2$.1f°</string>
+    <string name="stats_no_dht_data">Sin lecturas del DHT22</string>
+    <string name="stats_alert_humidity">Humedad sobre el máximo durante unos %s</string>
+    <string name="stats_alert_temperature">Temperatura fuera de rango durante unos %s</string>
+    <string name="stats_humidity_hint">Línea roja: máximo normal (%1$s%%)</string>
+    <string name="stats_temperature_hint">Líneas rojas: rango normal (%1$s° a %2$s°)</string>
+    <string name="stats_chart_hint_generic">Por hora del día</string>
+    <string name="stats_level_chart_hint">Líneas punteadas: alimentaciones. El nivel se mide al dispensar.</string>
+    <string name="stats_chart_no_data">Sin datos para este día</string>
+    <string name="stats_limit_max">máx %1$s%2$s</string>
+    <string name="stats_limit_min">mín %1$s%2$s</string>
+    <string name="stats_history_title_day">Alimentaciones del día (%d)</string>
+    <string name="stats_feeding_level">%1$d%% → %2$d%%</string>
+    <string name="stats_coverage">%1$d lecturas · %2$d%% del día cubierto</string>
+
+    <plurals name="feeding_portions">
+        <item quantity="one">%d porción</item>
+        <item quantity="other">%d porciones</item>
+    </plurals>
+    <plurals name="stats_refills">
+        <item quantity="one">%d relleno</item>
+        <item quantity="other">%d rellenos</item>
+    </plurals>
+    <plurals name="stats_alert_level_sensor">
+        <item quantity="one">El sensor de nivel falló en %d lectura</item>
+        <item quantity="other">El sensor de nivel falló en %d lecturas</item>
+    </plurals>
+    <string name="thresholds_error_empty">Completa todos los campos con un número.</string>
+    <string name="thresholds_error_humidity">La humedad máxima tiene que estar entre 1 y 100 %.</string>
+    <string name="thresholds_error_temp_range">La temperatura mínima tiene que ser menor que la máxima.</string>
+    <string name="thresholds_error_hopper_range">La distancia con la tolva llena tiene que ser menor que la distancia con la tolva vacía.</string>
+    <string name="thresholds_error_min_change">La bajada mínima por alimentación tiene que ser mayor que 0.</string>
+    <string name="thresholds_error_device">El dispensador rechazó los valores: %s</string>
+    <string name="thresholds_error_network">No se pudo contactar al dispensador. Verifica que estés en la misma red.</string>
 </resources>

@@ -14,7 +14,7 @@ import androidx.work.WorkerParameters;
 
 import com.juanchiz.fishfeeder.R;
 import com.juanchiz.fishfeeder.data.AppDatabase;
-import com.juanchiz.fishfeeder.data.FeedingEventTracker;
+import com.juanchiz.fishfeeder.data.HistorySync;
 import com.juanchiz.fishfeeder.data.PrefsManager;
 import com.juanchiz.fishfeeder.data.SensorReading;
 import com.juanchiz.fishfeeder.model.FeederStatus;
@@ -26,10 +26,9 @@ import java.util.concurrent.TimeUnit;
 import retrofit2.Response;
 
 /**
- * Se ejecuta periódicamente en segundo plano (WorkManager), aunque la app esté cerrada:
- * consulta /api/status, guarda una lectura en Room para las estadísticas, registra eventos de
- * alimentación nuevos (ver FeedingEventTracker) y dispara notificaciones locales si la tolva
- * está vacía o la humedad es alta.
+ * Corre cada 15 min en segundo plano (WorkManager), aunque la app esté cerrada:
+ *  1. Descarga el historial del ESP32 (lecturas cada 5 min + alimentaciones) a Room.
+ *  2. Consulta /api/status y publica o quita las notificaciones de alerta.
  */
 public class PollingWorker extends Worker {
 
@@ -38,6 +37,7 @@ public class PollingWorker extends Worker {
     private static final int NOTIF_ID_HUMIDITY = 2;
     private static final int NOTIF_ID_TEMPERATURE = 4;
     private static final int NOTIF_ID_JAM = 5;
+    private static final int NOTIF_ID_LEVEL_SENSOR = 6;
 
     public PollingWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
@@ -63,61 +63,68 @@ public class PollingWorker extends Worker {
         Context context = getApplicationContext();
         PrefsManager prefs = new PrefsManager(context);
         String baseUrl = prefs.getBaseUrl();
-        if (baseUrl == null) {
-            return Result.success(); // no hay dispositivo conectado, nada que consultar
-        }
+        if (baseUrl == null) return Result.success();
+
+        HistorySync.Result sync = HistorySync.syncBlocking(context);
 
         try {
             FeederApiService api = RetrofitClient.getApi(baseUrl);
             Response<FeederStatus> response = api.getStatus().execute();
-            if (!response.isSuccessful() || response.body() == null) {
-                return Result.retry();
-            }
-
+            if (!response.isSuccessful() || response.body() == null) return Result.retry();
             FeederStatus status = response.body();
-            long now = System.currentTimeMillis();
 
-            AppDatabase db = AppDatabase.getInstance(context);
-            db.sensorReadingDao().insert(new SensorReading(
-                    now, status.humedad, status.temperatura,
-                    status.nivelTolvaPct, status.tolvaVacia, status.humedadAlta));
-
-            FeedingEventTracker.detectAndLog(context, status, false, 0);
-
-            NotificationHelper.createChannelIfNeeded(context);
-            if (status.tolvaVacia && prefs.isNotifyEmptyEnabled()) {
-                NotificationHelper.notify(context, NOTIF_ID_EMPTY, context.getString(R.string.alert_empty));
-            } else {
-                NotificationManagerCompat.from(context).cancel(NOTIF_ID_EMPTY);
+            // Firmware viejo sin /api/history: se guarda la foto actual como antes.
+            if (sync == HistorySync.Result.UNSUPPORTED_FIRMWARE) {
+                AppDatabase.getInstance(context).sensorReadingDao().insert(new SensorReading(
+                        System.currentTimeMillis(), status.humedad, status.temperatura,
+                        status.nivelTolvaPct, status.tolvaVacia, status.humedadAlta));
             }
 
-            if (status.humedadAlta && prefs.isNotifyHumidityEnabled()) {
-                NotificationHelper.notify(context, NOTIF_ID_HUMIDITY, context.getString(R.string.alert_humidity));
-            } else {
-                NotificationManagerCompat.from(context).cancel(NOTIF_ID_HUMIDITY);
-            }
-
-            boolean temperaturaAnormal = status.temperaturaAlta || status.temperaturaBaja;
-            if (temperaturaAnormal && prefs.isNotifyTemperatureEnabled()) {
-                String mensaje = context.getString(status.temperaturaAlta ? R.string.alert_temp_high : R.string.alert_temp_low);
-                NotificationHelper.notify(context, NOTIF_ID_TEMPERATURE, mensaje);
-            } else {
-                NotificationManagerCompat.from(context).cancel(NOTIF_ID_TEMPERATURE);
-            }
-
-            if (status.posibleAtasco && prefs.isNotifyJamEnabled()) {
-                NotificationHelper.notify(context, NOTIF_ID_JAM, context.getString(R.string.alert_jam));
-            } else {
-                NotificationManagerCompat.from(context).cancel(NOTIF_ID_JAM);
-            }
-
-            // Purga lecturas de más de 30 días para no crecer indefinidamente.
-            long thirtyDaysAgo = now - TimeUnit.DAYS.toMillis(30);
-            db.sensorReadingDao().deleteOlderThan(thirtyDaysAgo);
-
+            actualizarNotificaciones(context, prefs, status);
             return Result.success();
         } catch (Exception e) {
             return Result.retry();
+        }
+    }
+
+    private void actualizarNotificaciones(Context context, PrefsManager prefs, FeederStatus status) {
+        NotificationHelper.createChannelIfNeeded(context);
+        NotificationManagerCompat nm = NotificationManagerCompat.from(context);
+
+        if (status.tolvaVacia && prefs.isNotifyEmptyEnabled()) {
+            NotificationHelper.notify(context, NOTIF_ID_EMPTY, context.getString(R.string.alert_empty));
+        } else {
+            nm.cancel(NOTIF_ID_EMPTY);
+        }
+
+        // Sensor de nivel con fallas en dos mediciones seguidas: se avisa con la misma
+        // preferencia de "tolva vacía", porque sin sensor no hay forma de saber si se vació.
+        boolean sensorNivelFalla = FeederStatus.NIVEL_ERROR.equals(status.nivelEstado)
+                || FeederStatus.NIVEL_SIN_SENSOR.equals(status.nivelEstado);
+        if (sensorNivelFalla && prefs.isNotifyEmptyEnabled()) {
+            NotificationHelper.notify(context, NOTIF_ID_LEVEL_SENSOR, context.getString(R.string.alert_level_sensor));
+        } else {
+            nm.cancel(NOTIF_ID_LEVEL_SENSOR);
+        }
+
+        if (status.humedadAlta && prefs.isNotifyHumidityEnabled()) {
+            NotificationHelper.notify(context, NOTIF_ID_HUMIDITY, context.getString(R.string.alert_humidity));
+        } else {
+            nm.cancel(NOTIF_ID_HUMIDITY);
+        }
+
+        boolean temperaturaAnormal = status.temperaturaAlta || status.temperaturaBaja;
+        if (temperaturaAnormal && prefs.isNotifyTemperatureEnabled()) {
+            String mensaje = context.getString(status.temperaturaAlta ? R.string.alert_temp_high : R.string.alert_temp_low);
+            NotificationHelper.notify(context, NOTIF_ID_TEMPERATURE, mensaje);
+        } else {
+            nm.cancel(NOTIF_ID_TEMPERATURE);
+        }
+
+        if (status.posibleAtasco && prefs.isNotifyJamEnabled()) {
+            NotificationHelper.notify(context, NOTIF_ID_JAM, context.getString(R.string.alert_jam));
+        } else {
+            nm.cancel(NOTIF_ID_JAM);
         }
     }
 }

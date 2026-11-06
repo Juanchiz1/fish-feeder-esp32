@@ -17,9 +17,11 @@ public class RetrofitClient {
 
     public static synchronized FeederApiService getApi(String baseUrl) {
         if (apiService == null || !baseUrl.equals(currentBaseUrl)) {
+            // 15 s de lectura: alimentar varias porciones o probar un sensor que no responde bloquea
+            // al ESP32 unos segundos antes de contestar.
             OkHttpClient client = new OkHttpClient.Builder()
                     .connectTimeout(5, TimeUnit.SECONDS)
-                    .readTimeout(8, TimeUnit.SECONDS)
+                    .readTimeout(15, TimeUnit.SECONDS)
                     .writeTimeout(8, TimeUnit.SECONDS)
                     .build();
 

@@ -1,16 +1,20 @@
 package com.juanchiz.fishfeeder.ui.dashboard;
 
+import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
@@ -18,13 +22,17 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.juanchiz.fishfeeder.R;
 import com.juanchiz.fishfeeder.data.AppDatabase;
-import com.juanchiz.fishfeeder.data.FeedingEventTracker;
+import com.juanchiz.fishfeeder.data.HistorySync;
 import com.juanchiz.fishfeeder.data.PrefsManager;
 import com.juanchiz.fishfeeder.data.SensorReading;
 import com.juanchiz.fishfeeder.model.FeederStatus;
+import com.juanchiz.fishfeeder.model.LevelDiagnostic;
 import com.juanchiz.fishfeeder.network.FeederApiService;
 import com.juanchiz.fishfeeder.network.RetrofitClient;
+import com.juanchiz.fishfeeder.ui.UiFormat;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -38,6 +46,9 @@ import retrofit2.Response;
 public class DashboardFragment extends Fragment {
 
     private static final int POLL_INTERVAL_MS = 5000;
+    private static final long SYNC_INTERVAL_MS = 60_000;
+    /** El ESP32 tarda ~2 s por porción + la medición del nivel antes de tener el resultado. */
+    private static final int REFRESH_AFTER_FEED_MS = 6000;
 
     private SwipeRefreshLayout swipeRefresh;
     private View dotStatus;
@@ -49,6 +60,8 @@ public class DashboardFragment extends Fragment {
     private TextView tvTemperature;
     private TextView tvLevel;
     private ProgressBar progressLevel;
+    private TextView tvLevelInfo;
+    private MaterialButton btnMeasureLevel;
     private TextView tvDaysRemaining;
     private TextView tvLastFeeding;
     private MaterialButtonToggleGroup toggleGroupPortions;
@@ -58,9 +71,9 @@ public class DashboardFragment extends Fragment {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable pollRunnable = this::refreshStatus;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService syncExecutor = Executors.newSingleThreadExecutor();
     private int selectedPortions = 1;
-    private boolean pendingManualFeedLog = false;
-    private int lastManualPortionsFed = 0;
+    private long lastSyncAttempt = 0;
 
     @Nullable
     @Override
@@ -84,12 +97,17 @@ public class DashboardFragment extends Fragment {
         tvTemperature = view.findViewById(R.id.tvTemperature);
         tvLevel = view.findViewById(R.id.tvLevel);
         progressLevel = view.findViewById(R.id.progressLevel);
+        tvLevelInfo = view.findViewById(R.id.tvLevelInfo);
+        btnMeasureLevel = view.findViewById(R.id.btnMeasureLevel);
         tvDaysRemaining = view.findViewById(R.id.tvDaysRemaining);
         tvLastFeeding = view.findViewById(R.id.tvLastFeeding);
         toggleGroupPortions = view.findViewById(R.id.toggleGroupPortions);
         btnFeedNow = view.findViewById(R.id.btnFeedNow);
 
-        swipeRefresh.setOnRefreshListener(this::refreshStatus);
+        swipeRefresh.setOnRefreshListener(() -> {
+            lastSyncAttempt = 0; // fuerza también la sincronización del historial
+            refreshStatus();
+        });
 
         toggleGroupPortions.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
             if (!isChecked) return;
@@ -99,10 +117,12 @@ public class DashboardFragment extends Fragment {
         });
 
         btnFeedNow.setOnClickListener(v -> feedNow());
+        btnMeasureLevel.setOnClickListener(v -> measureLevelNow());
 
         if (prefsManager.getBaseUrl() == null) {
             setConnected(false);
             btnFeedNow.setEnabled(false);
+            btnMeasureLevel.setEnabled(false);
         }
     }
 
@@ -118,29 +138,34 @@ public class DashboardFragment extends Fragment {
         handler.removeCallbacks(pollRunnable);
     }
 
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        executor.shutdown();
+        syncExecutor.shutdown();
+    }
+
     private void refreshStatus() {
+        handler.removeCallbacks(pollRunnable);
         String baseUrl = prefsManager.getBaseUrl();
         if (baseUrl == null) return;
 
-        FeederApiService api = RetrofitClient.getApi(baseUrl);
-        api.getStatus().enqueue(new Callback<FeederStatus>() {
+        RetrofitClient.getApi(baseUrl).getStatus().enqueue(new Callback<FeederStatus>() {
             @Override
-            public void onResponse(Call<FeederStatus> call, Response<FeederStatus> response) {
+            public void onResponse(@NonNull Call<FeederStatus> call, @NonNull Response<FeederStatus> response) {
                 if (!isAdded()) return;
                 swipeRefresh.setRefreshing(false);
-                if (response.isSuccessful() && response.body() != null) {
-                    bindStatus(response.body());
-                    setConnected(true);
-                    btnFeedNow.setEnabled(true);
-                } else {
-                    setConnected(false);
-                    btnFeedNow.setEnabled(false);
-                }
+                boolean ok = response.isSuccessful() && response.body() != null;
+                if (ok) bindStatus(response.body());
+                setConnected(ok);
+                btnFeedNow.setEnabled(ok);
+                btnMeasureLevel.setEnabled(ok);
+                if (ok) syncHistoryIfDue();
                 handler.postDelayed(pollRunnable, POLL_INTERVAL_MS);
             }
 
             @Override
-            public void onFailure(Call<FeederStatus> call, Throwable t) {
+            public void onFailure(@NonNull Call<FeederStatus> call, @NonNull Throwable t) {
                 if (!isAdded()) return;
                 swipeRefresh.setRefreshing(false);
                 setConnected(false);
@@ -149,112 +174,115 @@ public class DashboardFragment extends Fragment {
         });
     }
 
+    /** Mientras la pantalla está abierta, baja el historial del ESP32 a Room cada minuto. */
+    private void syncHistoryIfDue() {
+        long now = System.currentTimeMillis();
+        if (now - lastSyncAttempt < SYNC_INTERVAL_MS) return;
+        lastSyncAttempt = now;
+        android.content.Context appContext = requireContext().getApplicationContext();
+        syncExecutor.execute(() -> HistorySync.syncBlocking(appContext));
+    }
+
     private void bindStatus(FeederStatus status) {
-        tvHumidity.setText(String.format(Locale.getDefault(), "%.0f%%", status.humedad));
-        tvTemperature.setText(String.format(Locale.getDefault(), "%.1f°C", status.temperatura));
-        tvLevel.setText(status.nivelTolvaPct + "%");
-        progressLevel.setProgress(status.nivelTolvaPct);
+        if (status.dhtOk) {
+            tvHumidity.setText(String.format(Locale.getDefault(), "%.0f%%", status.humedad));
+            tvTemperature.setText(String.format(Locale.getDefault(), "%.1f°C", status.temperatura));
+        } else {
+            tvHumidity.setText("--");
+            tvTemperature.setText("--");
+        }
+
+        boolean nivelOk = status.nivelConfiable() && status.nivelTolvaPct >= 0;
+        tvLevel.setText(nivelOk ? status.nivelTolvaPct + "%" : "--");
+        progressLevel.setProgress(nivelOk ? status.nivelTolvaPct : 0);
+        tvLevelInfo.setText(getString(R.string.level_info_format,
+                UiFormat.hace(requireContext(), status.nivelMedidoHaceS),
+                UiFormat.estadoNivel(requireContext(), status.nivelEstado)));
+
         tvLastFeeding.setText(status.ultimaAlimentacion);
         tvClock.setText(status.horaActual);
-
         tvVacationBanner.setVisibility(status.horariosPausados ? View.VISIBLE : View.GONE);
 
-        FeedingEventTracker.detectAndLog(requireContext(), status, pendingManualFeedLog, lastManualPortionsFed);
-        pendingManualFeedLog = false;
+        if (nivelOk) estimateDaysRemaining(status.nivelTolvaPct);
+        else tvDaysRemaining.setVisibility(View.GONE);
 
-        estimateDaysRemaining(status.nivelTolvaPct);
+        bindAlerts(status, nivelOk);
+    }
 
-        StringBuilder alertText = new StringBuilder();
-        if (status.tolvaVacia) {
-            alertText.append(getString(R.string.alert_empty));
+    private void bindAlerts(FeederStatus status, boolean nivelOk) {
+        List<String> alertas = new ArrayList<>();
+        boolean urgente = false;
+
+        if (!nivelOk && !FeederStatus.NIVEL_SIN_MEDIR.equals(status.nivelEstado)) {
+            alertas.add(getString(R.string.alert_level_sensor));
+        } else if (status.tolvaVacia) {
+            alertas.add(getString(R.string.alert_empty));
+            urgente = true;
+        } else if (status.tolvaBaja) {
+            alertas.add(getString(R.string.alert_low));
         }
-        if (status.humedadAlta) {
-            if (alertText.length() > 0) alertText.append(" · ");
-            alertText.append(getString(R.string.alert_humidity));
+        if (!status.dhtOk) alertas.add(getString(R.string.alert_dht_sensor));
+        if (!status.rtcOk) {
+            alertas.add(getString(R.string.alert_rtc));
+            urgente = true;
         }
-        if (status.temperaturaAlta) {
-            if (alertText.length() > 0) alertText.append(" · ");
-            alertText.append(getString(R.string.alert_temp_high));
-        }
-        if (status.temperaturaBaja) {
-            if (alertText.length() > 0) alertText.append(" · ");
-            alertText.append(getString(R.string.alert_temp_low));
-        }
+        if (status.humedadAlta) alertas.add(getString(R.string.alert_humidity));
+        if (status.temperaturaAlta) alertas.add(getString(R.string.alert_temp_high));
+        if (status.temperaturaBaja) alertas.add(getString(R.string.alert_temp_low));
         if (status.posibleAtasco) {
-            if (alertText.length() > 0) alertText.append(" · ");
-            alertText.append(getString(R.string.alert_jam));
+            alertas.add(getString(R.string.alert_jam));
+            urgente = true;
         }
 
-        if (alertText.length() > 0) {
-            alertBanner.setVisibility(View.VISIBLE);
-            // Tolva vacía o un posible atasco son más urgentes que humedad/temperatura, así que
-            // deciden el color del banner.
-            boolean esUrgente = status.tolvaVacia || status.posibleAtasco;
-            int bgColorRes = esUrgente ? R.color.alert_danger_bg : R.color.alert_warning_bg;
-            int textColorRes = esUrgente ? R.color.alert_danger : R.color.alert_warning;
-            int bgColor = androidx.core.content.ContextCompat.getColor(requireContext(), bgColorRes);
-            int textColor = androidx.core.content.ContextCompat.getColor(requireContext(), textColorRes);
-
-            if (alertBanner.getBackground() != null) {
-                alertBanner.getBackground().mutate().setTint(bgColor);
-            }
-
-            if (alertBanner instanceof android.widget.LinearLayout) {
-                TextView existing = alertBanner.findViewWithTag("alertLabel");
-                if (existing == null) {
-                    existing = new TextView(requireContext());
-                    existing.setTag("alertLabel");
-                    existing.setTextSize(13);
-                    ((android.widget.LinearLayout) alertBanner).addView(existing);
-                }
-                existing.setTextColor(textColor);
-                existing.setText(alertText.toString());
-            }
-        } else {
+        if (alertas.isEmpty()) {
             alertBanner.setVisibility(View.GONE);
+            return;
+        }
+
+        alertBanner.setVisibility(View.VISIBLE);
+        int bgColor = ContextCompat.getColor(requireContext(), urgente ? R.color.alert_danger_bg : R.color.alert_warning_bg);
+        int textColor = ContextCompat.getColor(requireContext(), urgente ? R.color.alert_danger : R.color.alert_warning);
+        if (alertBanner.getBackground() != null) alertBanner.getBackground().mutate().setTint(bgColor);
+
+        if (alertBanner instanceof LinearLayout) {
+            TextView label = alertBanner.findViewWithTag("alertLabel");
+            if (label == null) {
+                label = new TextView(requireContext());
+                label.setTag("alertLabel");
+                label.setTextSize(13);
+                ((LinearLayout) alertBanner).addView(label);
+            }
+            label.setTextColor(textColor);
+            label.setText(android.text.TextUtils.join(" · ", alertas));
         }
     }
 
     /**
-     * Estima cuántos días quedan de alimento comparando el nivel de tolva actual contra una
-     * lectura de hace hasta 3 días: si el nivel bajó, proyecta esa misma tasa de consumo hacia
-     * adelante. No usa datos del ESP32 directamente porque no lleva ese historial; se apoya en
-     * las lecturas que PollingWorker/este mismo fragmento ya guardaron en Room.
+     * Proyecta los días restantes con la bajada de nivel de los últimos 3 días (lecturas en Room).
      */
     private void estimateDaysRemaining(int nivelActual) {
         AppDatabase db = AppDatabase.getInstance(requireContext());
         executor.execute(() -> {
             long haceTresDias = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(3);
             SensorReading masAntigua = db.sensorReadingDao().getOldestSince(haceTresDias);
-
             if (!isAdded()) return;
-            if (masAntigua == null) {
-                requireActivity().runOnUiThread(() -> tvDaysRemaining.setVisibility(View.GONE));
-                return;
-            }
 
-            double horasTranscurridas = (System.currentTimeMillis() - masAntigua.timestampMillis) / 3_600_000.0;
-            double nivelPerdido = masAntigua.nivelTolvaPct - nivelActual;
-
-            // Con menos de 6 horas de historial, o si el nivel no bajó (se acaba de rellenar la
-            // tolva, o subió por ruido del sensor), no hay una tasa confiable que proyectar.
-            if (horasTranscurridas < 6 || nivelPerdido <= 0) {
-                requireActivity().runOnUiThread(() -> tvDaysRemaining.setVisibility(View.GONE));
-                return;
-            }
-
-            double tasaPorHora = nivelPerdido / horasTranscurridas;
-            double diasRestantes = (nivelActual / tasaPorHora) / 24.0;
+            double horas = masAntigua == null ? 0 : (System.currentTimeMillis() - masAntigua.timestampMillis) / 3_600_000.0;
+            double perdido = masAntigua == null ? 0 : masAntigua.nivelTolvaPct - nivelActual;
 
             requireActivity().runOnUiThread(() -> {
                 if (!isAdded()) return;
-                tvDaysRemaining.setVisibility(View.VISIBLE);
-                String prefijo = getString(R.string.label_days_remaining) + ": ";
-                if (diasRestantes < 1) {
-                    tvDaysRemaining.setText(prefijo + getString(R.string.days_remaining_less_than_one));
-                } else {
-                    tvDaysRemaining.setText(prefijo + getString(R.string.days_remaining_format, (int) Math.round(diasRestantes)));
+                // Menos de 6 h de historial, o el nivel no bajó (se rellenó): no hay tasa confiable.
+                if (masAntigua == null || horas < 6 || perdido <= 0) {
+                    tvDaysRemaining.setVisibility(View.GONE);
+                    return;
                 }
+                double dias = (nivelActual / (perdido / horas)) / 24.0;
+                String prefijo = getString(R.string.label_days_remaining) + ": ";
+                tvDaysRemaining.setVisibility(View.VISIBLE);
+                tvDaysRemaining.setText(prefijo + (dias < 1
+                        ? getString(R.string.days_remaining_less_than_one)
+                        : getString(R.string.days_remaining_format, (int) Math.round(dias))));
             });
         });
     }
@@ -262,9 +290,8 @@ public class DashboardFragment extends Fragment {
     private void setConnected(boolean connected) {
         tvConnectionStatus.setText(connected ? R.string.status_connected : R.string.status_disconnected);
         dotStatus.setBackgroundResource(R.drawable.dot_status);
-        dotStatus.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                connected ? getResources().getColor(R.color.alert_ok, null)
-                        : getResources().getColor(R.color.alert_danger, null)));
+        dotStatus.setBackgroundTintList(ColorStateList.valueOf(ContextCompat.getColor(requireContext(),
+                connected ? R.color.alert_ok : R.color.alert_danger)));
     }
 
     private void feedNow() {
@@ -272,28 +299,60 @@ public class DashboardFragment extends Fragment {
         if (baseUrl == null) return;
 
         btnFeedNow.setEnabled(false);
-        btnFeedNow.setText(R.string.connecting);
+        btnFeedNow.setText(R.string.feeding_in_progress);
 
-        FeederApiService api = RetrofitClient.getApi(baseUrl);
-        api.feedNow(selectedPortions).enqueue(new Callback<Void>() {
+        RetrofitClient.getApi(baseUrl).feedNow(selectedPortions).enqueue(new Callback<Void>() {
             @Override
-            public void onResponse(Call<Void> call, Response<Void> response) {
+            public void onResponse(@NonNull Call<Void> call, @NonNull Response<Void> response) {
+                if (!isAdded()) return;
+                // El ESP32 responde antes de mover el servo; el nivel nuevo y el registro de la
+                // alimentación están listos unos segundos después.
+                handler.postDelayed(() -> {
+                    if (!isAdded()) return;
+                    btnFeedNow.setEnabled(true);
+                    btnFeedNow.setText(R.string.btn_feed_now);
+                    lastSyncAttempt = 0;
+                    refreshStatus();
+                }, REFRESH_AFTER_FEED_MS);
+            }
+
+            @Override
+            public void onFailure(@NonNull Call<Void> call, @NonNull Throwable t) {
                 if (!isAdded()) return;
                 btnFeedNow.setEnabled(true);
                 btnFeedNow.setText(R.string.btn_feed_now);
-                // El próximo refreshStatus() traerá la nueva "ultima_alimentacion" que el ESP32
-                // ya actualizó de forma síncrona al responder /api/feed; la marcamos como manual
-                // para que FeedingEventTracker registre las porciones correctas.
-                pendingManualFeedLog = true;
-                lastManualPortionsFed = selectedPortions;
+                Toast.makeText(requireContext(), R.string.feed_error, Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    /** Mide el nivel a pedido (por ejemplo justo después de rellenar la tolva). */
+    private void measureLevelNow() {
+        String baseUrl = prefsManager.getBaseUrl();
+        if (baseUrl == null) return;
+
+        btnMeasureLevel.setEnabled(false);
+        btnMeasureLevel.setText(R.string.measuring);
+        FeederApiService api = RetrofitClient.getApi(baseUrl);
+        api.testNivel().enqueue(new Callback<LevelDiagnostic>() {
+            @Override
+            public void onResponse(@NonNull Call<LevelDiagnostic> call, @NonNull Response<LevelDiagnostic> response) {
+                if (!isAdded()) return;
+                btnMeasureLevel.setEnabled(true);
+                btnMeasureLevel.setText(R.string.btn_measure_level);
+                LevelDiagnostic t = response.body();
+                if (response.isSuccessful() && t != null && !t.funciona() && t.mensaje != null) {
+                    Toast.makeText(requireContext(), t.mensaje, Toast.LENGTH_LONG).show();
+                }
                 refreshStatus();
             }
 
             @Override
-            public void onFailure(Call<Void> call, Throwable t) {
+            public void onFailure(@NonNull Call<LevelDiagnostic> call, @NonNull Throwable t) {
                 if (!isAdded()) return;
-                btnFeedNow.setEnabled(true);
-                btnFeedNow.setText(R.string.btn_feed_now);
+                btnMeasureLevel.setEnabled(true);
+                btnMeasureLevel.setText(R.string.btn_measure_level);
+                Toast.makeText(requireContext(), R.string.measure_error, Toast.LENGTH_SHORT).show();
             }
         });
     }

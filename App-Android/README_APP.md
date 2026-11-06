@@ -1,31 +1,51 @@
-# App Android — Dispensador de alimento para peces (Java)
+# App Android: dispensador de alimento para peces (Java)
 
-## Cómo abrirlo
+## Cómo abrirla
 
-1. Abre Android Studio → `Open` → selecciona la carpeta `App-Android` (la que contiene `settings.gradle`).
-2. Deja que Gradle sincronice (descarga Retrofit, Room, WorkManager, Material Components y MPAndroidChart automáticamente — todo vía Maven Central y JitPack, ya declarados en `settings.gradle` y `app/build.gradle`).
-3. Ejecuta en un celular Android real conectado por USB (con "Depuración USB" activada) o en un emulador — en ambos casos el celular/emulador debe estar en la **misma red WiFi** que el ESP32.
+1. En Android Studio: `Open`, y eliges la carpeta `FishFeederApp` (la que tiene `settings.gradle`).
+2. Esperas a que Gradle sincronice. Retrofit, Room, WorkManager, Material y MPAndroidChart se descargan solos.
+3. La corres en un celular por USB o en un emulador. El celular tiene que estar en la misma red WiFi que el ESP32.
 
-## Flujo de pantallas
+**Usa esta app con el firmware de `Firmware-ESP32/fish_feeder_firmware`.** Las pantallas de Diagnóstico y Estadísticas usan endpoints que el firmware anterior no tenía.
 
-| Pantalla | Qué hace | Endpoint del ESP32 que usa |
+## Pantallas
+
+| Pantalla | Qué hace | Endpoints |
 | --- | --- | --- |
-| Conectar (`ConnectActivity`) | Pide la IP del ESP32, valida con una llamada real antes de continuar | `GET /api/status` |
-| Inicio (`DashboardFragment`) | Estado en vivo (humedad, temperatura, nivel), alertas, alimentar ahora | `GET /api/status`, `POST /api/feed` |
-| Horarios (`ScheduleFragment`) | Ver/agregar/quitar horarios, guardar en el dispositivo | `GET /api/schedule`, `POST /api/schedule` |
-| Estadísticas (`StatsFragment`) | Gráficas de humedad y nivel, conteo de alimentaciones del día | Lee de la base de datos local (Room), no del ESP32 directamente |
-| Ajustes (`SettingsFragment`) | Ver IP conectada, activar/desactivar alertas, desconectar | — |
+| Conectar | Busca el dispensador por mDNS o por IP | `GET /api/status` |
+| Inicio | Estado en vivo, alertas, alimentar, **Medir nivel ahora** | `GET /api/status`, `POST /api/feed`, `POST /api/diagnostics/nivel` |
+| Horarios | Ver, agregar y quitar horarios | `GET/POST /api/schedule` |
+| Estadísticas | **Filtro por día**, resumen, gráficas por hora, semana, alimentaciones | Room (sincronizado desde `/api/history` y `/api/feedings`) |
+| Ajustes → Diagnóstico | **Un botón por sensor** + "probar los tres, uno por uno" | `GET /api/diagnostics`, `POST /api/diagnostics/{nivel,dht22,rtc}` |
+| Ajustes → Umbrales | Calibrar; "Actualizar lectura" mide el nivel una vez | `GET/POST /api/thresholds`, `POST /api/diagnostics/nivel` |
 
-## Por qué hay una base de datos local (Room)
+## Cómo llegan los datos a Estadísticas
 
-Tu ESP32 solo responde con el estado **actual** — no guarda historial. Para las gráficas de estadísticas, `PollingWorker` (usando `WorkManager`) consulta `/api/status` cada 15 minutos, **incluso con la app cerrada**, y guarda cada lectura en una tabla local (`sensor_readings`). Ese mismo worker es el que dispara las notificaciones de tolva vacía / humedad alta, comparando el estado contra tus preferencias guardadas en Ajustes.
+El ESP32 lee el DHT22 cada 5 minutos y guarda en RAM las últimas 24 h de lecturas, más las últimas 48 alimentaciones (con hora del RTC y el nivel antes y después). `HistorySync` descarga eso a Room:
 
-## Antes de correrla, ajusta esto
+- `PollingWorker`, cada 15 min, incluso con la app cerrada.
+- Inicio, cada minuto mientras está abierta.
+- Estadísticas, al abrir y al deslizar hacia abajo.
 
-- El proyecto usa `usesCleartextTraffic="true"` en el manifiesto porque el ESP32 sirve HTTP plano en tu red local (no HTTPS) — es correcto para este caso de uso, no lo quites.
-- `PollingWorker.schedule()` en `MainActivity.onCreate()` programa el polling cada 15 minutos como mínimo (es el límite de Android para `PeriodicWorkRequest`); el dashboard en pantalla hace su propio polling cada 5 segundos mientras la app está abierta, independiente de ese worker.
-- Si cambias los nombres de campos JSON en el firmware (`.ino`), tienes que actualizar `FeederStatus.java` y `ScheduleItem.java` para que sigan coincidiendo — están anotados con `@SerializedName` justamente en los mismos nombres que ya usa `fish_feeder_firmware.ino`.
+Sincronizar dos veces no duplica nada: `deviceTs` (la hora del RTC) es clave única. Si el celular pasa más de 24 h sin conectarse, las lecturas de ese hueco se pierden. Así funciona la RAM del ESP32.
 
-## Siguiente paso (cuando migres a Firebase)
+La base de datos pasó a la versión 2 con una migración (`AppDatabase.MIGRATION_1_2`), así que el historial que ya tenías no se borra.
 
-Todo el código que habla con el ESP32 está aislado en el paquete `network/` (`FeederApiService`, `RetrofitClient`) y en `PollingWorker`. Cuando decidas mover las alertas a Firebase Cloud Messaging para recibirlas fuera de la red WiFi, esos son los únicos puntos que cambian — el resto de la UI (Dashboard, Horarios, Estadísticas, Ajustes) no necesita tocarse.
+## Diagnóstico
+
+Cada tarjeta enciende solo su sensor:
+
+- **Nivel (RCWL-1601, ultrasonido):** dispara 10 pulsos y los muestra uno por uno (mm si fue válido, `mm*` si el eco volvió de más allá del fondo, `—` sin eco, `C` muy cerca, `E` sin respuesta). También muestra cuánto varían los ecos entre sí (si varían mucho, hay rebotes en las paredes) y la velocidad del sonido usada, corregida con la temperatura del DHT22.
+- **Humedad y temperatura (DHT22):** una lectura, con un reintento a los 2 s si falla.
+- **Reloj (DS3231):** reinicia la comunicación y muestra la hora y la temperatura interna.
+
+"Probar los tres, uno por uno" los corre en cadena. Cada uno empieza 1 s después de que el anterior respondió.
+
+## Notas
+
+- `usesCleartextTraffic="true"` es necesario: el ESP32 sirve HTTP plano en la red local.
+- El timeout de lectura es de 15 s porque alimentar varias porciones bloquea al ESP32 unos segundos antes de que pueda responder.
+- Calibración del nivel: en Ajustes → Umbrales, con la tolva vacía toca "Actualizar lectura" y luego "Usar" en "distancia con la tolva vacía". Aunque el eco vuelva de más allá del fondo actual, la app te muestra esa distancia para que la uses.
+- Umbrales: los campos aceptan coma o punto decimal ("65,5" o "65.5"). Antes, en celulares en español, `String.format("%.1f")` escribía "65,0" y `Float.parseFloat` lo rechazaba, por eso no guardaba. Si el ESP32 rechaza un valor, la app muestra el motivo que manda el firmware.
+- iPhone: no hay app. Se usa el panel web del ESP32 en `http://pezfeeder.local` (Safari → Compartir → Agregar a pantalla de inicio).
+- La hora del RTC es la hora local del celular (se sincroniza desde Ajustes). `DeviceTime` la convierte a hora real con la zona horaria del teléfono.

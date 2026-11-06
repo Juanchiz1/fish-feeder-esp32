@@ -38,5 +38,10 @@
             android:exported="false"
             android:label="@string/thresholds_title" />
 
+        <activity
+            android:name=".ui.diagnostics.DiagnosticsActivity"
+            android:exported="false"
+            android:label="@string/diagnostics_title" />
+
     </application>
 </manifest>

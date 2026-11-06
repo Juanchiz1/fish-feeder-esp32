@@ -240,9 +240,19 @@
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="match_parent"
             android:layout_height="52dp"
-            android:layout_marginBottom="20dp"
+            android:layout_marginBottom="12dp"
             app:cornerRadius="14dp"
             android:text="@string/btn_configure_thresholds"
+            android:textAllCaps="false" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDiagnostics"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginBottom="20dp"
+            app:cornerRadius="14dp"
+            android:text="@string/btn_open_diagnostics"
             android:textAllCaps="false" />
 
         <TextView

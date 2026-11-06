@@ -3,6 +3,8 @@ package com.juanchiz.fishfeeder.data;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import com.juanchiz.fishfeeder.model.ThresholdsConfig;
+
 /** Guarda la IP del dispensador y las preferencias de notificación. Sin backend, todo es local. */
 public class PrefsManager {
 
@@ -13,7 +15,10 @@ public class PrefsManager {
     private static final String KEY_NOTIFY_TEMPERATURE = "notify_temperature";
     private static final String KEY_NOTIFY_DAILY_SUMMARY = "notify_daily_summary";
     private static final String KEY_NOTIFY_JAM = "notify_jam";
-    private static final String KEY_LAST_FEED_LABEL = "last_feed_label";
+    private static final String KEY_LAST_SYNC = "last_history_sync";
+    private static final String KEY_THR_HUM_MAX = "thr_hum_max";
+    private static final String KEY_THR_TEMP_MIN = "thr_temp_min";
+    private static final String KEY_THR_TEMP_MAX = "thr_temp_max";
 
     private final SharedPreferences prefs;
 
@@ -83,14 +88,34 @@ public class PrefsManager {
         prefs.edit().putBoolean(KEY_NOTIFY_DAILY_SUMMARY, enabled).apply();
     }
 
-    /** Etiqueta de texto de la última alimentación que ya se registró en el historial local
-     *  (ver FeedingEventTracker), para no duplicar el mismo evento entre el polling en segundo
-     *  plano y el refresco en pantalla del Dashboard. */
-    public String getLastFeedLabel() {
-        return prefs.getString(KEY_LAST_FEED_LABEL, null);
+    /** Última sincronización exitosa del historial del ESP32 (ver HistorySync). 0 = nunca. */
+    public long getLastSyncMillis() {
+        return prefs.getLong(KEY_LAST_SYNC, 0);
     }
 
-    public void setLastFeedLabel(String label) {
-        prefs.edit().putString(KEY_LAST_FEED_LABEL, label).apply();
+    public void setLastSyncMillis(long millis) {
+        prefs.edit().putLong(KEY_LAST_SYNC, millis).apply();
+    }
+
+    /** Copia local de los umbrales del ESP32, para las líneas de referencia de las gráficas. */
+    public void saveThresholds(ThresholdsConfig t) {
+        prefs.edit()
+                .putFloat(KEY_THR_HUM_MAX, t.humedadMax)
+                .putFloat(KEY_THR_TEMP_MIN, t.temperaturaMin)
+                .putFloat(KEY_THR_TEMP_MAX, t.temperaturaMax)
+                .apply();
+    }
+
+    /** NaN si todavía no se han descargado. */
+    public float getCachedHumidityMax() {
+        return prefs.getFloat(KEY_THR_HUM_MAX, Float.NaN);
+    }
+
+    public float getCachedTempMin() {
+        return prefs.getFloat(KEY_THR_TEMP_MIN, Float.NaN);
+    }
+
+    public float getCachedTempMax() {
+        return prefs.getFloat(KEY_THR_TEMP_MAX, Float.NaN);
     }
 }

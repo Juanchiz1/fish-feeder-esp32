@@ -189,6 +189,34 @@
                         android:max="100"
                         android:progress="0" />
 
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tvLevelInfo"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:textSize="12sp"
+                            android:textColor="@color/text_secondary_light" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnMeasureLevel"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minHeight="0dp"
+                            android:paddingTop="4dp"
+                            android:paddingBottom="4dp"
+                            android:text="@string/btn_measure_level"
+                            android:textAllCaps="false"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+
                     <TextView
                         android:id="@+id/tvDaysRemaining"
                         android:layout_width="match_parent"
